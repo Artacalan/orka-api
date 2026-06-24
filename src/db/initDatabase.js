@@ -14,11 +14,6 @@ async function initDatabase() {
         );
     `;
 
-    const ensureGroupColumnQuery = `
-        ALTER TABLE biens_fiscaux
-        ADD COLUMN IF NOT EXISTS groupe_id BIGINT UNSIGNED NULL AFTER invariant;
-    `;
-
     const createTableQuery = `
         CREATE TABLE IF NOT EXISTS biens_fiscaux (
             invariant VARCHAR(20) PRIMARY KEY,
@@ -56,7 +51,47 @@ async function initDatabase() {
 
     await pool.query(createGroupsTableQuery);
     await pool.query(createTableQuery);
-    await pool.query(ensureGroupColumnQuery);
+
+    const [columnRows] = await pool.query(
+        `
+            SELECT COUNT(*) AS columnCount
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'biens_fiscaux'
+              AND COLUMN_NAME = 'groupe_id'
+        `
+    );
+
+    if (columnRows[0].columnCount === 0) {
+        await pool.query(
+            `
+                ALTER TABLE biens_fiscaux
+                ADD COLUMN groupe_id BIGINT UNSIGNED NULL AFTER invariant;
+            `
+        );
+    }
+
+    const [constraintRows] = await pool.query(
+        `
+            SELECT COUNT(*) AS constraintCount
+            FROM information_schema.TABLE_CONSTRAINTS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'biens_fiscaux'
+              AND CONSTRAINT_NAME = 'fk_biens_fiscaux_groupe'
+        `
+    );
+
+    if (constraintRows[0].constraintCount === 0) {
+        await pool.query(
+            `
+                ALTER TABLE biens_fiscaux
+                ADD CONSTRAINT fk_biens_fiscaux_groupe
+                    FOREIGN KEY (groupe_id) REFERENCES biens_groupes(id)
+                    ON UPDATE CASCADE
+                    ON DELETE SET NULL;
+            `
+        );
+    }
 }
 
 async function run() {
