@@ -1,6 +1,6 @@
 # orka_api
 
-API Express separee de l'initialisation MySQL.
+API Express separee de l'initialisation MySQL, avec regroupement des biens par adresse et type.
 
 ## Installation
 
@@ -42,6 +42,7 @@ npm run dev
 ## Endpoint actuel
 
 - `GET /hello`
+- `POST /api/biens/import`
 
 Reponse :
 
@@ -50,4 +51,6 @@ Reponse :
   "message": "hello world"
 }
 ```
+
+Le endpoint d'import cree automatiquement un groupe dans `biens_groupes` quand l'adresse et le type sont nouveaux, puis rattache chaque bien a ce groupe via `groupe_id`.
 # orka-api

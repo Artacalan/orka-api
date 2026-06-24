@@ -1,20 +1,28 @@
-require('dotenv').config();
-const mysql = require('mysql2/promise');
-
-const pool = mysql.createPool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-});
+const pool = require('./pool');
 
 async function initDatabase() {
+    const createGroupsTableQuery = `
+        CREATE TABLE IF NOT EXISTS biens_groupes (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            rue VARCHAR(255),
+            depcom VARCHAR(5),
+            ville VARCHAR(100),
+            nom_immeuble VARCHAR(150),
+            nature_bien VARCHAR(50),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_bien_groupe (rue, depcom, ville, nature_bien)
+        );
+    `;
+
+    const ensureGroupColumnQuery = `
+        ALTER TABLE biens_fiscaux
+        ADD COLUMN IF NOT EXISTS groupe_id BIGINT UNSIGNED NULL AFTER invariant;
+    `;
+
     const createTableQuery = `
         CREATE TABLE IF NOT EXISTS biens_fiscaux (
             invariant VARCHAR(20) PRIMARY KEY,
+            groupe_id BIGINT UNSIGNED NULL,
             rue VARCHAR(255),
             depcom VARCHAR(5),
             ville VARCHAR(100),
@@ -38,11 +46,17 @@ async function initDatabase() {
             nb_eviers INT,
             raccordement_egout TINYINT(1),
             nb_pieces INT,
-            nb_vide_ordures INT
+            nb_vide_ordures INT,
+            CONSTRAINT fk_biens_fiscaux_groupe
+                FOREIGN KEY (groupe_id) REFERENCES biens_groupes(id)
+                ON UPDATE CASCADE
+                ON DELETE SET NULL
         );
     `;
 
+    await pool.query(createGroupsTableQuery);
     await pool.query(createTableQuery);
+    await pool.query(ensureGroupColumnQuery);
 }
 
 async function run() {
