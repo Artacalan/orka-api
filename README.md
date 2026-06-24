@@ -27,6 +27,14 @@ Variables attendues :
 npm run db:init
 ```
 
+## Vider les tables
+
+```bash
+npm run db:clear
+```
+
+Ce script supprime les donnees de `biens_fiscaux` et `biens_groupes` sans modifier le schema.
+
 ## Lancement API
 
 ```bash

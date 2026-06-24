@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/api/server.js",
     "dev": "node --watch src/api/server.js",
-    "db:init": "node src/db/initDatabase.js"
+    "db:init": "node src/db/initDatabase.js",
+    "db:clear": "node src/db/clearDatabase.js"
   },
   "keywords": [],
   "author": "",
