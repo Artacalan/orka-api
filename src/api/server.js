@@ -3,6 +3,7 @@ const express = require('express');
 const biensRouter = require('./routes/biens');
 const updateBiensRouter = require('./routes/updateBiens');
 const erpRouter = require('./routes/erp')
+const createRouter = require('./routes/create')
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -12,6 +13,7 @@ app.get('/hello', (req, res) => {
 });
 
 app.use('/api', erpRouter)
+app.use('/api', createRouter)
 app.use('/api/biens', biensRouter);
 app.use('/api', updateBiensRouter);
 

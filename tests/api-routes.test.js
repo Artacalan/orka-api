@@ -93,6 +93,46 @@ const routeContracts = [
         expectedBody: { success: true },
     },
     {
+        name: 'POST /api/create',
+        method: 'post',
+        path: '/create',
+        source: 'src/api/routes/create.js',
+        mountedPath: '/api/create',
+        payload: {
+            contentType: 'multipart/form-data',
+            file: {
+                field: 'file',
+                filename: 'taxe-fonciere.pdf',
+                mimetype: 'application/pdf',
+            },
+        },
+        expectedStatus: 200,
+        expectedBody: {
+            columns: [
+                { name: 'invariant', status: 'lie' },
+            ],
+            biens: [sampleBienPayload],
+        },
+    },
+    {
+        name: 'POST /api/validateCreate',
+        method: 'post',
+        path: '/validateCreate',
+        source: 'src/api/routes/create.js',
+        mountedPath: '/api/validateCreate',
+        payload: {
+            contentType: 'multipart/form-data',
+            file: {
+                field: 'file',
+                filename: 'taxe-fonciere.pdf',
+                mimetype: 'application/pdf',
+            },
+            biens: [sampleBienPayload],
+        },
+        expectedStatus: 200,
+        expectedBody: { success: true },
+    },
+    {
         name: 'POST /api/biens/import',
         method: 'post',
         path: '/import',
