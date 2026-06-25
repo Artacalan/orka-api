@@ -77,6 +77,7 @@ async function initDatabase() {
     await pool.query(createTableQuery);
     await pool.query(createHistoriqueTableQuery);
     await pool.query(createOldTableQuery);
+    await ensureCurrentOldTableSchema();
 
     const [columnRows] = await pool.query(
         `
@@ -136,6 +137,40 @@ async function initDatabase() {
                 ADD COLUMN valeur_calculee DECIMAL(12,2) NULL;
             `
         );
+    }
+}
+
+async function ensureCurrentOldTableSchema() {
+    const requiredColumns = [
+        {
+            name: 'operation',
+            definition: "ADD COLUMN operation VARCHAR(20) NOT NULL DEFAULT 'archive' AFTER invariant"
+        },
+        {
+            name: 'donnees',
+            definition: 'ADD COLUMN donnees JSON NULL AFTER operation'
+        },
+        {
+            name: 'created_at',
+            definition: 'ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP'
+        }
+    ];
+
+    for (const column of requiredColumns) {
+        const [rows] = await pool.query(
+            `
+                SELECT COUNT(*) AS columnCount
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'biens_fiscaux_old'
+                  AND COLUMN_NAME = ?
+            `,
+            [column.name]
+        );
+
+        if (rows[0].columnCount === 0) {
+            await pool.query(`ALTER TABLE biens_fiscaux_old ${column.definition};`);
+        }
     }
 }
 
