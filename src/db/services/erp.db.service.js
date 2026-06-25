@@ -24,6 +24,7 @@ async function getBiensFiscauxColumns() {
      FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
      AND TABLE_NAME = 'biens_fiscaux'
+     AND COLUMN_NAME <> 'groupe_id'
      ORDER BY ORDINAL_POSITION`
   )
   return rows.map(r => r.COLUMN_NAME)
@@ -92,13 +93,10 @@ async function upsertRowsWithArchive(rows, mapping) {
 
         if (existing.length > 0) {
           const oldRow = existing[0]
-          const oldCols = Object.keys(oldRow)
-          const oldVals = Object.values(oldRow)
 
           await connection.query(
-            `INSERT INTO biens_fiscaux_old (${oldCols.map(c => `\`${c}\``).join(', ')})
-             VALUES (${oldCols.map(() => '?').join(', ')})`,
-            oldVals
+            'INSERT INTO biens_fiscaux_old (invariant, operation, donnees) VALUES (?, ?, ?)',
+            [invariant, 'erp_update', JSON.stringify(oldRow)]
           )
 
           const setCols = Object.keys(mappedRow).filter(c => c !== 'invariant')

@@ -158,7 +158,7 @@ const formatBien = (row) => ({
 // GET /api/biens
 router.get('/', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM biens_fiscaux');
+        const [rows] = await pool.query('SELECT * FROM biens_fiscaux ORDER BY invariant');
         return res.status(200).json({ biens: rows.map(formatBien) });
     } catch (err) {
         console.error('[GET /biens]', err);
@@ -178,11 +178,17 @@ router.get('/group', async (req, res) => {
         const groupsWithBiens = await Promise.all(
             groups.map(async (group) => {
                 const [biens] = await pool.query(
-                    'SELECT * FROM biens_fiscaux WHERE groupe_id = ?',
+                    'SELECT * FROM biens_fiscaux WHERE groupe_id = ? ORDER BY invariant',
                     [group.id]
                 );
                 return {
+                    id: group.id,
                     nom:   group.nom_immeuble,
+                    rue: group.rue,
+                    depcom: group.depcom,
+                    ville: group.ville,
+                    nature_bien: group.nature_bien,
+                    adresse: [group.rue, group.depcom, group.ville].filter(Boolean).join(' '),
                     biens: biens.map(formatBien),
                 };
             })
