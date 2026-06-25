@@ -32,5 +32,13 @@ const pdfUpload = multer({
   }
 })
 
+const anyFileUpload = multer({
+  storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024
+  }
+})
+
 module.exports = csvUpload
 module.exports.pdf = pdfUpload
+module.exports.anyFile = anyFileUpload

@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../../db/pool');
+const { getLatestOptimizationsByGroupIds } = require('../../db/services/optimize.db.service');
 
 const router = express.Router();
 
@@ -233,10 +234,14 @@ router.post('/import', async (req, res) => {
 });
 
 const formatBien = (row, changes = null, options = {}) => {
+    const optimization = options.optimizationsByGroupId?.get(row.groupe_id) ?? null;
     const formatted = {
         ...row,
         nom: row.nom_immeuble ?? null,
         adresse: [row.rue, row.depcom, row.ville].filter(Boolean).join(' '),
+        optimization,
+        statut_optimisation: optimization?.statut ?? null,
+        en_optimisation: optimization?.statut === 'en_cours',
     };
 
     if (changes) {
@@ -260,7 +265,9 @@ const formatBiensWithChanges = async (biens, options = {}) => {
 router.get('/', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM biens_fiscaux ORDER BY invariant');
-        const biens = await formatBiensWithChanges(rows);
+        const groupIds = rows.map((row) => row.groupe_id).filter(Boolean);
+        const optimizationsByGroupId = await getLatestOptimizationsByGroupIds(pool, groupIds);
+        const biens = await formatBiensWithChanges(rows, { optimizationsByGroupId });
         return res.status(200).json({ biens });
     } catch (err) {
         console.error('[GET /biens]', err);
@@ -276,9 +283,14 @@ router.get('/group', async (req, res) => {
              FROM biens_groupes
              ORDER BY id`
         );
+        const optimizationsByGroupId = await getLatestOptimizationsByGroupIds(
+            pool,
+            groups.map((group) => group.id)
+        );
 
         const groupsWithBiens = await Promise.all(
             groups.map(async (group) => {
+                const optimization = optimizationsByGroupId.get(group.id) ?? null;
                 const [biens] = await pool.query(
                     'SELECT * FROM biens_fiscaux WHERE groupe_id = ? ORDER BY invariant',
                     [group.id]
@@ -291,7 +303,10 @@ router.get('/group', async (req, res) => {
                     ville: group.ville,
                     nature_bien: group.nature_bien,
                     adresse: [group.rue, group.depcom, group.ville].filter(Boolean).join(' '),
-                    biens: await formatBiensWithChanges(biens),
+                    optimization,
+                    statut_optimisation: optimization?.statut ?? null,
+                    en_optimisation: optimization?.statut === 'en_cours',
+                    biens: await formatBiensWithChanges(biens, { optimizationsByGroupId }),
                 };
             })
         );
@@ -314,7 +329,14 @@ router.get('/:invariant', async (req, res) => {
             return res.status(404).json({ error: 'Bien non trouve.' });
         }
 
-        const [bien] = await formatBiensWithChanges(rows, { includeModifiedFields: true });
+        const optimizationsByGroupId = await getLatestOptimizationsByGroupIds(
+            pool,
+            rows.map((row) => row.groupe_id)
+        );
+        const [bien] = await formatBiensWithChanges(rows, {
+            includeModifiedFields: true,
+            optimizationsByGroupId,
+        });
         return res.status(200).json({ bien });
     } catch (err) {
         console.error(`[GET /biens/${invariant}]`, err);
@@ -342,6 +364,8 @@ router.get('/group/:id', async (req, res) => {
             'SELECT * FROM biens_fiscaux WHERE groupe_id = ? ORDER BY invariant',
             [id]
         );
+        const optimizationsByGroupId = await getLatestOptimizationsByGroupIds(pool, [group.id]);
+        const optimization = optimizationsByGroupId.get(group.id) ?? null;
 
         return res.status(200).json({
             group: {
@@ -352,7 +376,13 @@ router.get('/group/:id', async (req, res) => {
                 ville: group.ville,
                 nature_bien: group.nature_bien,
                 adresse: [group.rue, group.depcom, group.ville].filter(Boolean).join(' '),
-                biens: await formatBiensWithChanges(biens, { includeModifiedFields: true }),
+                optimization,
+                statut_optimisation: optimization?.statut ?? null,
+                en_optimisation: optimization?.statut === 'en_cours',
+                biens: await formatBiensWithChanges(biens, {
+                    includeModifiedFields: true,
+                    optimizationsByGroupId,
+                }),
             },
         });
     } catch (err) {

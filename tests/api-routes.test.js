@@ -204,6 +204,41 @@ const routeContracts = [
         expectedBody: { success: true },
     },
     {
+        name: 'POST /api/optimize',
+        method: 'post',
+        path: '/optimize',
+        source: 'src/api/routes/updateBiens.js',
+        mountedPath: '/api/optimize',
+        payload: {
+            contentType: 'multipart/form-data',
+            group_id: 1,
+            commentaire: 'Optimisation demandee',
+            files: [
+                {
+                    field: 'files',
+                    filename: 'note.pdf',
+                    mimetype: 'application/pdf',
+                },
+            ],
+        },
+        expectedStatus: 200,
+        expectedBody: { success: true },
+    },
+    {
+        name: 'POST /api/bulk/optimize',
+        method: 'post',
+        path: '/bulk/optimize',
+        source: 'src/api/routes/updateBiens.js',
+        mountedPath: '/api/bulk/optimize',
+        payload: {
+            contentType: 'multipart/form-data',
+            commentaire: 'Optimisation globale demandee',
+            files: [],
+        },
+        expectedStatus: 200,
+        expectedBody: { success: true },
+    },
+    {
         name: 'POST /api/delete',
         method: 'post',
         path: '/delete',
@@ -296,5 +331,12 @@ describe('Enrichissement des biens', () => {
         assert.ok(source.includes('a_des_modifications'));
         assert.ok(source.includes('champs_modifies'));
         assert.ok(source.includes('includeModifiedFields'));
+    });
+
+    test('Les routes GET biens exposent les optimisations en cours', () => {
+        const source = readProjectFile('src/api/routes/biens.js');
+
+        assert.ok(source.includes('getLatestOptimizationsByGroupIds'));
+        assert.ok(source.includes('optimization'));
     });
 });

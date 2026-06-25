@@ -1,5 +1,10 @@
 const express = require('express');
 const pool = require('../../db/pool');
+const upload = require('./middlewares/upload.middleware');
+const {
+    buildFilesMetadata,
+    createOptimization,
+} = require('../../db/services/optimize.db.service');
 
 const router = express.Router();
 
@@ -45,6 +50,14 @@ function filtrerPayload(body) {
     return filtered;
 }
 
+function getGroupIdFromBody(body) {
+    return body.group_id ?? body.groupe_id;
+}
+
+function getCommentaireFromBody(body) {
+    return normalizeValue(body.commentaire ?? body.comment);
+}
+
 async function getOrCreateGroup(connection, bien) {
     const rue = normalizeValue(bien.rue);
     const depcom = normalizeValue(bien.depcom);
@@ -68,6 +81,83 @@ async function getOrCreateGroup(connection, bien) {
     );
     return result.insertId;
 }
+
+router.post('/optimize', upload.anyFile.any(), async (req, res) => {
+    const groupId = getGroupIdFromBody(req.body);
+    if (!groupId) {
+        return res.status(400).json({ success: false, error: 'group_id requis.' });
+    }
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [groups] = await connection.query(
+            'SELECT id FROM biens_groupes WHERE id = ?',
+            [groupId]
+        );
+
+        if (groups.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, error: 'Groupe introuvable.' });
+        }
+
+        const optimization = await createOptimization(connection, {
+            groupId,
+            commentaire: getCommentaireFromBody(req.body),
+            fichiers: buildFilesMetadata(req.files),
+        });
+
+        await connection.commit();
+        return res.status(200).json({ success: true, optimization });
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Erreur optimize :', error);
+        return res.status(500).json({ success: false, error: 'Erreur lors du passage du groupe en optimisation.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+router.post('/bulk/optimize', upload.anyFile.any(), async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [groups] = await connection.query('SELECT id FROM biens_groupes ORDER BY id');
+        if (groups.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, error: 'Aucun groupe a optimiser.' });
+        }
+
+        const fichiers = buildFilesMetadata(req.files);
+        const optimizations = [];
+
+        for (const group of groups) {
+            const optimization = await createOptimization(connection, {
+                groupId: group.id,
+                commentaire: getCommentaireFromBody(req.body),
+                fichiers,
+            });
+            optimizations.push(optimization);
+        }
+
+        await connection.commit();
+        return res.status(200).json({
+            success: true,
+            groupesImpactes: optimizations.length,
+            optimizations,
+        });
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Erreur bulk optimize :', error);
+        return res.status(500).json({ success: false, error: 'Erreur lors du passage des groupes en optimisation.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
 
 router.post('/add', async (req, res) => {
     const { invariant } = req.body;
