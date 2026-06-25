@@ -248,3 +248,13 @@ describe('Payloads attendus', () => {
         }
     });
 });
+
+describe('Enrichissement des biens', () => {
+    test('Les routes GET biens exposent les modifications realisees', () => {
+        const source = readProjectFile('src/api/routes/biens.js');
+
+        assert.ok(source.includes('a_des_modifications'));
+        assert.ok(source.includes('champs_modifies'));
+        assert.ok(source.includes('includeModifiedFields'));
+    });
+});

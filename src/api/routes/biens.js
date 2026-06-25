@@ -21,6 +21,89 @@ const normalizeValue = (val) => {
     return val;
 };
 
+const BOOLEAN_FIELDS = new Set([
+    'ascenseur', 'eau_courante', 'raccordement_gaz', 'raccordement_elec', 'raccordement_egout'
+]);
+
+const NUMERIC_FIELDS = new Set([
+    'groupe_id', 'ponderation_nature', 'etage', 'surface_m2', 'coef_entretien',
+    'coef_sit_particuliere', 'coef_sit_generale', 'nb_baignoires', 'nb_douches',
+    'nb_bidets', 'nb_wc', 'nb_eviers', 'nb_pieces', 'nb_vide_ordures', 'valeur_calculee'
+]);
+
+const IGNORED_CHANGE_FIELDS = new Set(['invariant']);
+
+const parseArchivedData = (data) => {
+    if (!data) return null;
+    if (typeof data === 'object') return data;
+
+    try {
+        return JSON.parse(data);
+    } catch (error) {
+        return null;
+    }
+};
+
+const normalizeComparableValue = (field, value) => {
+    if (value === undefined || value === null) return null;
+    if (BOOLEAN_FIELDS.has(field)) return parseBoolean(value);
+    if (NUMERIC_FIELDS.has(field) && value !== '') {
+        const numericValue = Number(value);
+        return Number.isNaN(numericValue) ? value : numericValue;
+    }
+    return value;
+};
+
+const getModifiedFields = (currentRow, archivedRow) => {
+    if (!archivedRow) return [];
+
+    return Object.keys(currentRow)
+        .filter((field) => !IGNORED_CHANGE_FIELDS.has(field))
+        .filter((field) => Object.prototype.hasOwnProperty.call(archivedRow, field))
+        .filter((field) => {
+            return normalizeComparableValue(field, currentRow[field])
+                !== normalizeComparableValue(field, archivedRow[field]);
+        });
+};
+
+const getChangesByInvariant = async (biens) => {
+    if (biens.length === 0) return new Map();
+
+    const invariants = biens.map((bien) => bien.invariant).filter(Boolean);
+    if (invariants.length === 0) return new Map();
+
+    const [snapshots] = await pool.query(
+        `
+            SELECT invariant, donnees
+            FROM biens_fiscaux_old
+            WHERE operation IN ('edit', 'erp_update')
+              AND invariant IN (?)
+            ORDER BY invariant, created_at DESC, id DESC
+        `,
+        [invariants]
+    );
+
+    const latestSnapshots = new Map();
+    for (const snapshot of snapshots) {
+        if (!latestSnapshots.has(snapshot.invariant)) {
+            latestSnapshots.set(snapshot.invariant, parseArchivedData(snapshot.donnees));
+        }
+    }
+
+    return new Map(
+        biens.map((bien) => {
+            const champsModifies = getModifiedFields(bien, latestSnapshots.get(bien.invariant));
+            return [
+                bien.invariant,
+                {
+                    a_des_modifications: champsModifies.length > 0,
+                    champs_modifies: champsModifies,
+                },
+            ];
+        })
+    );
+};
+
 async function getOrCreateGroup(connection, ligne) {
     const rue = normalizeValue(ligne.rue);
     const depcom = normalizeValue(ligne.depcom);
@@ -149,17 +232,36 @@ router.post('/import', async (req, res) => {
     }
 });
 
-const formatBien = (row) => ({
-    ...row,
-    nom: row.nom_immeuble ?? null,
-    adresse: [row.rue, row.depcom, row.ville].filter(Boolean).join(' '),
-});
+const formatBien = (row, changes = null, options = {}) => {
+    const formatted = {
+        ...row,
+        nom: row.nom_immeuble ?? null,
+        adresse: [row.rue, row.depcom, row.ville].filter(Boolean).join(' '),
+    };
+
+    if (changes) {
+        formatted.a_des_modifications = changes.a_des_modifications;
+        if (options.includeModifiedFields) {
+            formatted.champs_modifies = changes.champs_modifies;
+        }
+    }
+
+    return formatted;
+};
+
+const formatBiensWithChanges = async (biens, options = {}) => {
+    const changesByInvariant = await getChangesByInvariant(biens);
+    return biens.map((bien) => {
+        return formatBien(bien, changesByInvariant.get(bien.invariant), options);
+    });
+};
 
 // GET /api/biens
 router.get('/', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM biens_fiscaux ORDER BY invariant');
-        return res.status(200).json({ biens: rows.map(formatBien) });
+        const biens = await formatBiensWithChanges(rows);
+        return res.status(200).json({ biens });
     } catch (err) {
         console.error('[GET /biens]', err);
         res.status(500).json({ error: err.message });
@@ -189,7 +291,7 @@ router.get('/group', async (req, res) => {
                     ville: group.ville,
                     nature_bien: group.nature_bien,
                     adresse: [group.rue, group.depcom, group.ville].filter(Boolean).join(' '),
-                    biens: biens.map(formatBien),
+                    biens: await formatBiensWithChanges(biens),
                 };
             })
         );
@@ -212,7 +314,8 @@ router.get('/:invariant', async (req, res) => {
             return res.status(404).json({ error: 'Bien non trouve.' });
         }
 
-        return res.status(200).json({ bien: formatBien(rows[0]) });
+        const [bien] = await formatBiensWithChanges(rows, { includeModifiedFields: true });
+        return res.status(200).json({ bien });
     } catch (err) {
         console.error(`[GET /biens/${invariant}]`, err);
         res.status(500).json({ error: err.message });
@@ -249,7 +352,7 @@ router.get('/group/:id', async (req, res) => {
                 ville: group.ville,
                 nature_bien: group.nature_bien,
                 adresse: [group.rue, group.depcom, group.ville].filter(Boolean).join(' '),
-                biens: biens.map(formatBien),
+                biens: await formatBiensWithChanges(biens, { includeModifiedFields: true }),
             },
         });
     } catch (err) {
