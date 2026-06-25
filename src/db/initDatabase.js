@@ -142,7 +142,7 @@ async function initDatabase() {
 async function run() {
     try {
         await initDatabase();
-        console.log("Base de donnees verifiee : La table 'biens_fiscaux' est prete.");
+        console.log("Base de donnees verifiee : Les tables sont pretes.");
         process.exit(0);
     } catch (error) {
         console.error("Erreur critique lors de l'initialisation de la base de donnees :", error);
