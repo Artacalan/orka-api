@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const biensRouter = require('./routes/biens');
+const updateBiensRouter = require('./routes/updateBiens');
 const erpRouter = require('./routes/erp')
 
 const app = express();
@@ -12,6 +13,7 @@ app.get('/hello', (req, res) => {
 
 app.use('/api', erpRouter)
 app.use('/api/biens', biensRouter);
+app.use('/api', updateBiensRouter);
 
 const PORT = process.env.PORT || 3000;
 

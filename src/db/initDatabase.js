@@ -49,41 +49,33 @@ async function initDatabase() {
         );
     `;
 
+    const createHistoriqueTableQuery = `
+        CREATE TABLE IF NOT EXISTS biens_fiscaux_historique (
+            id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            invariant       VARCHAR(20)     NOT NULL,
+            champ           VARCHAR(100)    NOT NULL,
+            ancienne_valeur TEXT,
+            nouvelle_valeur TEXT,
+            modifie_at      TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_historique_bien
+                FOREIGN KEY (invariant) REFERENCES biens_fiscaux(invariant)
+                ON DELETE CASCADE
+        );
+    `;
+
     const createOldTableQuery = `
         CREATE TABLE IF NOT EXISTS biens_fiscaux_old (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-            archived_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            invariant VARCHAR(20),
-            groupe_id BIGINT UNSIGNED NULL,
-            rue VARCHAR(255),
-            depcom VARCHAR(5),
-            ville VARCHAR(100),
-            nom_immeuble VARCHAR(150),
-            nature_bien VARCHAR(50),
-            ponderation_nature DECIMAL(4,2),
-            etage INT,
-            categorie VARCHAR(10),
-            surface_m2 DECIMAL(8,2),
-            coef_entretien DECIMAL(5,2),
-            coef_sit_particuliere DECIMAL(5,2),
-            coef_sit_generale DECIMAL(5,2),
-            ascenseur TINYINT(1),
-            eau_courante TINYINT(1),
-            raccordement_gaz TINYINT(1),
-            raccordement_elec TINYINT(1),
-            nb_baignoires INT,
-            nb_douches INT,
-            nb_bidets INT,
-            nb_wc INT,
-            nb_eviers INT,
-            raccordement_egout TINYINT(1),
-            nb_pieces INT,
-            nb_vide_ordures INT
+            id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            invariant   VARCHAR(20)     NOT NULL,
+            operation   VARCHAR(20)     NOT NULL,
+            donnees     JSON            NOT NULL,
+            created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
     `;
 
     await pool.query(createGroupsTableQuery);
     await pool.query(createTableQuery);
+    await pool.query(createHistoriqueTableQuery);
     await pool.query(createOldTableQuery);
 
     const [columnRows] = await pool.query(
@@ -123,6 +115,25 @@ async function initDatabase() {
                     FOREIGN KEY (groupe_id) REFERENCES biens_groupes(id)
                     ON UPDATE CASCADE
                     ON DELETE SET NULL;
+            `
+        );
+    }
+
+    const [valeurCalcRows] = await pool.query(
+        `
+            SELECT COUNT(*) AS columnCount
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'biens_fiscaux'
+              AND COLUMN_NAME = 'valeur_calculee'
+        `
+    );
+
+    if (valeurCalcRows[0].columnCount === 0) {
+        await pool.query(
+            `
+                ALTER TABLE biens_fiscaux
+                ADD COLUMN valeur_calculee DECIMAL(12,2) NULL;
             `
         );
     }
