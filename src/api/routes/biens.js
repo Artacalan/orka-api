@@ -149,4 +149,50 @@ router.post('/import', async (req, res) => {
     }
 });
 
+const formatBien = (row) => ({
+    ...row,
+    nom: row.nom_immeuble ?? null,
+    adresse: [row.rue, row.depcom, row.ville].filter(Boolean).join(' '),
+});
+
+// GET /api/biens
+router.get('/', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM biens_fiscaux');
+        return res.status(200).json({ biens: rows.map(formatBien) });
+    } catch (err) {
+        console.error('[GET /biens]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/biens/group
+router.get('/group', async (req, res) => {
+    try {
+        const [groups] = await pool.query(
+            `SELECT id, nom_immeuble, rue, depcom, ville, nature_bien
+             FROM biens_groupes
+             ORDER BY id`
+        );
+
+        const groupsWithBiens = await Promise.all(
+            groups.map(async (group) => {
+                const [biens] = await pool.query(
+                    'SELECT * FROM biens_fiscaux WHERE groupe_id = ?',
+                    [group.id]
+                );
+                return {
+                    nom:   group.nom_immeuble,
+                    biens: biens.map(formatBien),
+                };
+            })
+        );
+
+        return res.status(200).json({ groups: groupsWithBiens });
+    } catch (err) {
+        console.error('[GET /biens/group]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
