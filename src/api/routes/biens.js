@@ -201,4 +201,61 @@ router.get('/group', async (req, res) => {
     }
 });
 
+// GET/api/biens/:invariant
+router.get('/:invariant', async (req, res) => {
+    const { invariant } = req.params;
+
+    try {
+        const [rows] = await pool.query('SELECT * FROM biens_fiscaux WHERE invariant = ?', [invariant]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Bien non trouve.' });
+        }
+
+        return res.status(200).json({ bien: formatBien(rows[0]) });
+    } catch (err) {
+        console.error(`[GET /biens/${invariant}]`, err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/biens/group/:id
+router.get('/group/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const [groupRows] = await pool.query(
+            'SELECT * FROM biens_groupes WHERE id = ?',
+            [id]
+        );
+
+        if (groupRows.length === 0) {
+            return res.status(404).json({ error: 'Groupe non trouve.' });
+        }
+
+        const group = groupRows[0];
+
+        const [biens] = await pool.query(
+            'SELECT * FROM biens_fiscaux WHERE groupe_id = ? ORDER BY invariant',
+            [id]
+        );
+
+        return res.status(200).json({
+            group: {
+                id: group.id,
+                nom: group.nom_immeuble,
+                rue: group.rue,
+                depcom: group.depcom,
+                ville: group.ville,
+                nature_bien: group.nature_bien,
+                adresse: [group.rue, group.depcom, group.ville].filter(Boolean).join(' '),
+                biens: biens.map(formatBien),
+            },
+        });
+    } catch (err) {
+        console.error(`[GET /biens/group/${id}]`, err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
