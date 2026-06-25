@@ -1,8 +1,11 @@
 const express = require('express');
 const pool = require('../../db/pool');
-const { calculerValeur } = require('../../utils/calcul');
 
 const router = express.Router();
+
+const BOOLEAN_FIELDS = new Set([
+    'ascenseur', 'eau_courante', 'raccordement_gaz', 'raccordement_elec', 'raccordement_egout'
+]);
 
 const CHAMPS_MODIFIABLES = new Set([
     'rue', 'depcom', 'ville', 'nom_immeuble', 'nature_bien',
@@ -13,16 +16,23 @@ const CHAMPS_MODIFIABLES = new Set([
     'raccordement_egout', 'nb_pieces', 'nb_vide_ordures'
 ]);
 
-const BOOLEAN_FIELDS = new Set([
-    'ascenseur', 'eau_courante', 'raccordement_gaz', 'raccordement_elec', 'raccordement_egout'
-]);
-
-function normaliserValeur(champ, valeur) {
-    if (valeur === null || valeur === undefined) return null;
-    if (BOOLEAN_FIELDS.has(champ)) {
-        return (valeur === true || valeur === 'Oui' || valeur === '1' || valeur === 1) ? 1 : 0;
+function normalizeValue(val) {
+    if (val === undefined || val === null) return null;
+    if (typeof val === 'string') {
+        const trimmed = val.trim();
+        return trimmed.length > 0 ? trimmed : null;
     }
-    return valeur;
+    return val;
+}
+
+function parseBoolean(val) {
+    return (val === true || val === 'Oui' || val === '1' || val === 1) ? 1 : 0;
+}
+
+function normaliserValeur(champ, val) {
+    if (val === null || val === undefined) return null;
+    if (BOOLEAN_FIELDS.has(champ)) return parseBoolean(val);
+    return val;
 }
 
 function filtrerPayload(body) {
@@ -35,30 +45,34 @@ function filtrerPayload(body) {
     return filtered;
 }
 
-function calculerDiff(actuel, payload) {
-    const changements = [];
-    for (const [champ, nouvelleValeur] of Object.entries(payload)) {
-        const ancienneValeur = actuel[champ];
+async function getOrCreateGroup(connection, bien) {
+    const rue = normalizeValue(bien.rue);
+    const depcom = normalizeValue(bien.depcom);
+    const ville = normalizeValue(bien.ville);
+    const natureBien = normalizeValue(bien.nature_bien);
+    const nomImmeuble = normalizeValue(bien.nom_immeuble);
 
-        const ancStr = ancienneValeur === null || ancienneValeur === undefined
-            ? null : String(ancienneValeur);
-        const nveStr = nouvelleValeur === null || nouvelleValeur === undefined
-            ? null : String(nouvelleValeur);
+    const [existing] = await connection.query(
+        `SELECT id FROM biens_groupes
+         WHERE rue <=> ? AND depcom <=> ? AND ville <=> ? AND nature_bien <=> ?
+         LIMIT 1`,
+        [rue, depcom, ville, natureBien]
+    );
 
-        if (ancStr !== nveStr) {
-            changements.push({ champ, ancienne_valeur: ancStr, nouvelle_valeur: nveStr });
-        }
-    }
-    return changements;
+    if (existing.length > 0) return existing[0].id;
+
+    const [result] = await connection.query(
+        `INSERT INTO biens_groupes (rue, depcom, ville, nom_immeuble, nature_bien)
+         VALUES (?, ?, ?, ?, ?)`,
+        [rue, depcom, ville, nomImmeuble, natureBien]
+    );
+    return result.insertId;
 }
 
-// /groupe/:groupeId DOIT être déclaré avant /:invariant
-router.put('/groupe/:groupeId', async (req, res) => {
-    const { groupeId } = req.params;
-    const filteredPayload = filtrerPayload(req.body);
-
-    if (Object.keys(filteredPayload).length === 0) {
-        return res.status(400).json({ error: 'Aucun champ valide fourni.' });
+router.post('/add', async (req, res) => {
+    const { invariant } = req.body;
+    if (!invariant) {
+        return res.status(400).json({ success: false, error: 'invariant requis.' });
     }
 
     let connection;
@@ -66,81 +80,67 @@ router.put('/groupe/:groupeId', async (req, res) => {
         connection = await pool.getConnection();
         await connection.beginTransaction();
 
-        const [biensActuels] = await connection.query(
-            'SELECT * FROM biens_fiscaux WHERE groupe_id = ?',
-            [groupeId]
-        );
-
-        if (biensActuels.length === 0) {
-            await connection.rollback();
-            return res.status(404).json({ error: 'Groupe introuvable ou vide.' });
-        }
-
-        const tousChangements = [];
-        for (const bien of biensActuels) {
-            const changs = calculerDiff(bien, filteredPayload);
-            for (const c of changs) {
-                tousChangements.push({ invariant: bien.invariant, ...c });
-            }
-        }
-
-        if (tousChangements.length === 0) {
-            await connection.rollback();
-            return res.status(200).json({ message: 'Aucune modification détectée.' });
-        }
-
-        const champsMisAJour = Object.keys(filteredPayload);
-        const setClauses = champsMisAJour.map(k => `${k} = ?`).join(', ');
-        const setValues = champsMisAJour.map(k => filteredPayload[k]);
+        const groupeId = await getOrCreateGroup(connection, req.body);
 
         await connection.query(
-            `UPDATE biens_fiscaux SET ${setClauses} WHERE groupe_id = ?`,
-            [...setValues, groupeId]
+            `INSERT INTO biens_fiscaux (
+                invariant, groupe_id, rue, depcom, ville, nom_immeuble, nature_bien,
+                ponderation_nature, etage, categorie, surface_m2, coef_entretien,
+                coef_sit_particuliere, coef_sit_generale, ascenseur, eau_courante,
+                raccordement_gaz, raccordement_elec, nb_baignoires, nb_douches,
+                nb_bidets, nb_wc, nb_eviers, raccordement_egout, nb_pieces, nb_vide_ordures
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                normalizeValue(invariant),
+                groupeId,
+                normalizeValue(req.body.rue),
+                normalizeValue(req.body.depcom),
+                normalizeValue(req.body.ville),
+                normalizeValue(req.body.nom_immeuble),
+                normalizeValue(req.body.nature_bien),
+                req.body.ponderation_nature ?? null,
+                req.body.etage ?? null,
+                normalizeValue(req.body.categorie),
+                req.body.surface_m2 ?? null,
+                req.body.coef_entretien ?? null,
+                req.body.coef_sit_particuliere ?? null,
+                req.body.coef_sit_generale ?? null,
+                parseBoolean(req.body.ascenseur),
+                parseBoolean(req.body.eau_courante),
+                parseBoolean(req.body.raccordement_gaz),
+                parseBoolean(req.body.raccordement_elec),
+                req.body.nb_baignoires || 0,
+                req.body.nb_douches || 0,
+                req.body.nb_bidets || 0,
+                req.body.nb_wc || 0,
+                req.body.nb_eviers || 0,
+                parseBoolean(req.body.raccordement_egout),
+                req.body.nb_pieces || 0,
+                req.body.nb_vide_ordures || 0
+            ]
         );
-
-        const histValues = tousChangements.map(c => [
-            c.invariant, c.champ, c.ancienne_valeur, c.nouvelle_valeur
-        ]);
-        await connection.query(
-            'INSERT INTO biens_fiscaux_historique (invariant, champ, ancienne_valeur, nouvelle_valeur) VALUES ?',
-            [histValues]
-        );
-
-        for (const bien of biensActuels) {
-            const bienMisAJour = { ...bien, ...filteredPayload };
-            const nouvelleValeur = calculerValeur(bienMisAJour);
-            if (nouvelleValeur !== null) {
-                await connection.query(
-                    'UPDATE biens_fiscaux SET valeur_calculee = ? WHERE invariant = ?',
-                    [nouvelleValeur, bien.invariant]
-                );
-            }
-        }
 
         await connection.commit();
-
-        return res.status(200).json({
-            message: 'Groupe mis à jour.',
-            groupeId: parseInt(groupeId),
-            biensModifies: new Set(tousChangements.map(c => c.invariant)).size,
-            champsModifies: champsMisAJour
-        });
+        return res.status(200).json({ success: true });
 
     } catch (error) {
         if (connection) await connection.rollback();
-        console.error('Erreur update groupe :', error);
-        return res.status(500).json({ error: 'Erreur lors de la mise à jour du groupe.' });
+        console.error('Erreur add bien :', error);
+        return res.status(500).json({ success: false, error: 'Erreur lors de l\'ajout du bien.' });
     } finally {
         if (connection) connection.release();
     }
 });
 
-router.put('/:invariant', async (req, res) => {
-    const { invariant } = req.params;
-    const filteredPayload = filtrerPayload(req.body);
+router.post('/edit', async (req, res) => {
+    const { invariant, ...body } = req.body;
+    if (!invariant) {
+        return res.status(400).json({ success: false, error: 'invariant requis.' });
+    }
 
-    if (Object.keys(filteredPayload).length === 0) {
-        return res.status(400).json({ error: 'Aucun champ valide fourni.' });
+    const payload = filtrerPayload(body);
+    if (Object.keys(payload).length === 0) {
+        return res.status(400).json({ success: false, error: 'Aucun champ valide fourni.' });
     }
 
     let connection;
@@ -152,83 +152,159 @@ router.put('/:invariant', async (req, res) => {
             'SELECT * FROM biens_fiscaux WHERE invariant = ?',
             [invariant]
         );
-
         if (rows.length === 0) {
             await connection.rollback();
-            return res.status(404).json({ error: 'Bien introuvable.' });
+            return res.status(404).json({ success: false, error: 'Bien introuvable.' });
         }
 
-        const bienActuel = rows[0];
-        const changements = calculerDiff(bienActuel, filteredPayload);
+        await connection.query(
+            'INSERT INTO biens_fiscaux_old (invariant, operation, donnees) VALUES (?, ?, ?)',
+            [invariant, 'edit', JSON.stringify(rows[0])]
+        );
 
-        if (changements.length === 0) {
-            await connection.rollback();
-            return res.status(200).json({ message: 'Aucune modification détectée.' });
-        }
-
-        const setClauses = changements.map(c => `${c.champ} = ?`).join(', ');
-        const setValues = changements.map(c => filteredPayload[c.champ]);
-
+        const setClauses = Object.keys(payload).map(k => `${k} = ?`).join(', ');
         await connection.query(
             `UPDATE biens_fiscaux SET ${setClauses} WHERE invariant = ?`,
-            [...setValues, invariant]
+            [...Object.values(payload), invariant]
         );
-
-        const histValues = changements.map(c => [
-            invariant, c.champ, c.ancienne_valeur, c.nouvelle_valeur
-        ]);
-        await connection.query(
-            'INSERT INTO biens_fiscaux_historique (invariant, champ, ancienne_valeur, nouvelle_valeur) VALUES ?',
-            [histValues]
-        );
-
-        const bienMisAJour = { ...bienActuel, ...filteredPayload };
-        const nouvelleValeur = calculerValeur(bienMisAJour);
-        if (nouvelleValeur !== null) {
-            await connection.query(
-                'UPDATE biens_fiscaux SET valeur_calculee = ? WHERE invariant = ?',
-                [nouvelleValeur, invariant]
-            );
-        }
 
         await connection.commit();
-
-        return res.status(200).json({
-            message: 'Bien mis à jour.',
-            invariant,
-            modifications: changements,
-            valeur_calculee: nouvelleValeur
-        });
+        return res.status(200).json({ success: true });
 
     } catch (error) {
         if (connection) await connection.rollback();
-        console.error('Erreur update bien :', error);
-        return res.status(500).json({ error: 'Erreur lors de la mise à jour du bien.' });
+        console.error('Erreur edit bien :', error);
+        return res.status(500).json({ success: false, error: 'Erreur lors de la modification du bien.' });
     } finally {
         if (connection) connection.release();
     }
 });
 
-router.get('/:invariant/historique', async (req, res) => {
-    const { invariant } = req.params;
+router.post('/bulk/edit', async (req, res) => {
+    const { groupe_id, ...body } = req.body;
+    if (!groupe_id) {
+        return res.status(400).json({ success: false, error: 'groupe_id requis.' });
+    }
 
+    const payload = filtrerPayload(body);
+    if (Object.keys(payload).length === 0) {
+        return res.status(400).json({ success: false, error: 'Aucun champ valide fourni.' });
+    }
+
+    let connection;
     try {
-        const [rows] = await pool.query(
-            `SELECT id, champ, ancienne_valeur, nouvelle_valeur, modifie_at
-             FROM biens_fiscaux_historique
-             WHERE invariant = ?
-             ORDER BY modifie_at DESC`,
-            [invariant]
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [biens] = await connection.query(
+            'SELECT * FROM biens_fiscaux WHERE groupe_id = ?',
+            [groupe_id]
+        );
+        if (biens.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, error: 'Groupe introuvable ou vide.' });
+        }
+
+        const snapshots = biens.map(b => [b.invariant, 'edit', JSON.stringify(b)]);
+        await connection.query(
+            'INSERT INTO biens_fiscaux_old (invariant, operation, donnees) VALUES ?',
+            [snapshots]
         );
 
-        return res.status(200).json({
-            invariant,
-            historique: rows
-        });
+        const setClauses = Object.keys(payload).map(k => `${k} = ?`).join(', ');
+        await connection.query(
+            `UPDATE biens_fiscaux SET ${setClauses} WHERE groupe_id = ?`,
+            [...Object.values(payload), groupe_id]
+        );
+
+        await connection.commit();
+        return res.status(200).json({ success: true });
 
     } catch (error) {
-        console.error('Erreur lecture historique :', error);
-        return res.status(500).json({ error: 'Erreur lors de la lecture de l\'historique.' });
+        if (connection) await connection.rollback();
+        console.error('Erreur bulk edit :', error);
+        return res.status(500).json({ success: false, error: 'Erreur lors de la modification du groupe.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+router.post('/delete', async (req, res) => {
+    const { invariant } = req.body;
+    if (!invariant) {
+        return res.status(400).json({ success: false, error: 'invariant requis.' });
+    }
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [rows] = await connection.query(
+            'SELECT * FROM biens_fiscaux WHERE invariant = ?',
+            [invariant]
+        );
+        if (rows.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, error: 'Bien introuvable.' });
+        }
+
+        await connection.query(
+            'INSERT INTO biens_fiscaux_old (invariant, operation, donnees) VALUES (?, ?, ?)',
+            [invariant, 'delete', JSON.stringify(rows[0])]
+        );
+
+        await connection.query('DELETE FROM biens_fiscaux WHERE invariant = ?', [invariant]);
+
+        await connection.commit();
+        return res.status(200).json({ success: true });
+
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Erreur delete bien :', error);
+        return res.status(500).json({ success: false, error: 'Erreur lors de la suppression du bien.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+router.post('/bulk/delete', async (req, res) => {
+    const { groupe_id } = req.body;
+    if (!groupe_id) {
+        return res.status(400).json({ success: false, error: 'groupe_id requis.' });
+    }
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [biens] = await connection.query(
+            'SELECT * FROM biens_fiscaux WHERE groupe_id = ?',
+            [groupe_id]
+        );
+        if (biens.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, error: 'Groupe introuvable ou vide.' });
+        }
+
+        const snapshots = biens.map(b => [b.invariant, 'delete', JSON.stringify(b)]);
+        await connection.query(
+            'INSERT INTO biens_fiscaux_old (invariant, operation, donnees) VALUES ?',
+            [snapshots]
+        );
+
+        await connection.query('DELETE FROM biens_fiscaux WHERE groupe_id = ?', [groupe_id]);
+
+        await connection.commit();
+        return res.status(200).json({ success: true });
+
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error('Erreur bulk delete :', error);
+        return res.status(500).json({ success: false, error: 'Erreur lors de la suppression du groupe.' });
+    } finally {
+        if (connection) connection.release();
     }
 });
 

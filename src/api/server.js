@@ -11,7 +11,7 @@ app.get('/hello', (req, res) => {
 });
 
 app.use('/api/biens', biensRouter);
-app.use('/api/biens', updateBiensRouter);
+app.use('/api', updateBiensRouter);
 
 const PORT = process.env.PORT || 3000;
 

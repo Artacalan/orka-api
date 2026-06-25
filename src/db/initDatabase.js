@@ -63,9 +63,20 @@ async function initDatabase() {
         );
     `;
 
+    const createOldTableQuery = `
+        CREATE TABLE IF NOT EXISTS biens_fiscaux_old (
+            id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            invariant   VARCHAR(20)     NOT NULL,
+            operation   VARCHAR(20)     NOT NULL,
+            donnees     JSON            NOT NULL,
+            created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    `;
+
     await pool.query(createGroupsTableQuery);
     await pool.query(createTableQuery);
     await pool.query(createHistoriqueTableQuery);
+    await pool.query(createOldTableQuery);
 
     const [columnRows] = await pool.query(
         `
