@@ -10,6 +10,7 @@ const parseData = (data) => {
       columns: true,
       skip_empty_lines: true,
       trim: true,
+      delimiter: ';',
     }
   )
 
