@@ -277,6 +277,16 @@ const routeContracts = [
         expectedStatus: 200,
         expectedBody: { success: true },
     },
+    {
+        name: 'POST /api/maintenance/clear-db',
+        method: 'post',
+        path: '/maintenance/clear-db',
+        source: 'src/api/routes/updateBiens.js',
+        mountedPath: '/api/maintenance/clear-db',
+        payload: {},
+        expectedStatus: 200,
+        expectedBody: { success: true },
+    },
 ];
 
 describe('Contrats des routes API', () => {
