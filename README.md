@@ -28,7 +28,7 @@ PORT=3000
 npm start          # lance l'API
 npm run dev        # lance l'API avec reload natif Node
 npm run db:init    # cree/verifie les tables MySQL
-npm run db:clear   # vide les tables de donnees
+npm run db:clear   # vide toutes les tables de la base MySQL courante
 npm run test:routes
 ```
 

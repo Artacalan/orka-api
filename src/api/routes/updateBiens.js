@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../../db/pool');
+const clearDatabase = require('../../db/clearDatabase');
 const upload = require('./middlewares/upload.middleware');
 const {
     buildFilesMetadata,
@@ -395,6 +396,22 @@ router.post('/bulk/delete', async (req, res) => {
         return res.status(500).json({ success: false, error: 'Erreur lors de la suppression du groupe.' });
     } finally {
         if (connection) connection.release();
+    }
+});
+
+router.post('/maintenance/clear-db', async (req, res) => {
+    try {
+        await clearDatabase();
+        return res.status(200).json({
+            success: true,
+            message: 'Toutes les tables de la base courante ont ete videes.',
+        });
+    } catch (error) {
+        console.error('Erreur clear-db :', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Erreur lors du vidage complet de la base de donnees.',
+        });
     }
 });
 

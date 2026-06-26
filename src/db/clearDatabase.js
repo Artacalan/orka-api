@@ -1,12 +1,22 @@
 const pool = require('./pool');
 
 async function clearDatabase() {
+    const [tables] = await pool.query(
+        `
+            SELECT TABLE_NAME
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_TYPE = 'BASE TABLE'
+            ORDER BY TABLE_NAME
+        `
+    );
+
     await pool.query('SET FOREIGN_KEY_CHECKS = 0');
 
     try {
-        await pool.query('TRUNCATE TABLE `optimize`');
-        await pool.query('TRUNCATE TABLE biens_fiscaux');
-        await pool.query('TRUNCATE TABLE biens_groupes');
+        for (const { TABLE_NAME } of tables) {
+            await pool.query(`TRUNCATE TABLE \`${TABLE_NAME.replace(/`/g, '``')}\``);
+        }
     } finally {
         await pool.query('SET FOREIGN_KEY_CHECKS = 1');
     }
@@ -15,7 +25,7 @@ async function clearDatabase() {
 async function run() {
     try {
         await clearDatabase();
-        console.log("Base de donnees videe : les tables 'optimize', 'biens_fiscaux' et 'biens_groupes' ont ete reinitialisees.");
+        console.log('Base de donnees videe : toutes les tables de la base courante ont ete reinitialisees.');
         process.exit(0);
     } catch (error) {
         console.error("Erreur critique lors du vidage de la base de donnees :", error);
@@ -23,4 +33,8 @@ async function run() {
     }
 }
 
-run();
+module.exports = clearDatabase;
+
+if (require.main === module) {
+    run();
+}
