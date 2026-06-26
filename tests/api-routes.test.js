@@ -166,6 +166,21 @@ const routeContracts = [
         expectedBody: { groups: [] },
     },
     {
+        name: 'GET /api/biens/group/:groupe_id/tarif-difference',
+        method: 'get',
+        path: '/group/:groupe_id/tarif-difference',
+        source: 'src/api/routes/biens.js',
+        mountedPath: '/api/biens/group/:groupe_id/tarif-difference',
+        payload: null,
+        expectedStatus: 200,
+        expectedBody: {
+            groupe_id: 'number',
+            champ: 'surface_m2',
+            difference_totale_tarif: 'number',
+            differences: [],
+        },
+    },
+    {
         name: 'POST /api/add',
         method: 'post',
         path: '/add',
@@ -338,5 +353,15 @@ describe('Enrichissement des biens', () => {
 
         assert.ok(source.includes('getLatestOptimizationsByGroupIds'));
         assert.ok(source.includes('optimization'));
+    });
+
+    test('La route de tarification expose les anciennes et nouvelles valeurs', () => {
+        const source = readProjectFile('src/api/routes/biens.js');
+
+        assert.ok(source.includes('tarif-difference'));
+        assert.ok(source.includes('TARIFS_PAR_CHAMP'));
+        assert.ok(source.includes('ancienne_valeur'));
+        assert.ok(source.includes('nouvelle_valeur'));
+        assert.ok(source.includes('difference_totale_tarif'));
     });
 });

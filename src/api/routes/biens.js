@@ -32,6 +32,34 @@ const NUMERIC_FIELDS = new Set([
     'nb_bidets', 'nb_wc', 'nb_eviers', 'nb_pieces', 'nb_vide_ordures', 'valeur_calculee'
 ]);
 
+const TARIFS_PAR_CHAMP = Object.freeze({
+    rue: 4,
+    depcom: 7,
+    ville: 5,
+    nom_immeuble: 6,
+    nature_bien: 8,
+    ponderation_nature: 11,
+    etage: 9,
+    categorie: 12,
+    surface_m2: 15,
+    coef_entretien: 10,
+    coef_sit_particuliere: 13,
+    coef_sit_generale: 14,
+    ascenseur: 35,
+    eau_courante: 32,
+    raccordement_gaz: 29,
+    raccordement_elec: 31,
+    nb_baignoires: 17,
+    nb_douches: 16,
+    nb_bidets: 18,
+    nb_wc: 19,
+    nb_eviers: 20,
+    raccordement_egout: 33,
+    nb_pieces: 22,
+    nb_vide_ordures: 21,
+    valeur_calculee: 1,
+});
+
 const IGNORED_CHANGE_FIELDS = new Set(['invariant']);
 
 const parseArchivedData = (data) => {
@@ -53,6 +81,36 @@ const normalizeComparableValue = (field, value) => {
         return Number.isNaN(numericValue) ? value : numericValue;
     }
     return value;
+};
+
+const toNumberIfPossible = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const numericValue = Number(value);
+    return Number.isNaN(numericValue) ? null : numericValue;
+};
+
+const computeTariffDifference = (field, oldValue, newValue) => {
+    const tarif = TARIFS_PAR_CHAMP[field];
+    if (tarif === undefined) return 0;
+
+    const numericOld = toNumberIfPossible(oldValue);
+    const numericNew = toNumberIfPossible(newValue);
+
+    if (numericOld !== null && numericNew !== null) {
+        return Number(((numericNew - numericOld) * tarif).toFixed(2));
+    }
+
+    if (oldValue === newValue) return 0;
+
+    if ((oldValue === null || oldValue === '') && (newValue !== null && newValue !== '')) {
+        return tarif;
+    }
+
+    if ((newValue === null || newValue === '') && (oldValue !== null && oldValue !== '')) {
+        return -tarif;
+    }
+
+    return tarif;
 };
 
 const getModifiedFields = (currentRow, archivedRow) => {
@@ -103,6 +161,30 @@ const getChangesByInvariant = async (biens) => {
             ];
         })
     );
+};
+
+const getLatestSnapshotsForInvariants = async (invariants) => {
+    if (!Array.isArray(invariants) || invariants.length === 0) return new Map();
+
+    const [snapshots] = await pool.query(
+        `
+            SELECT invariant, donnees
+            FROM biens_fiscaux_old
+            WHERE operation IN ('edit', 'erp_update')
+              AND invariant IN (?)
+            ORDER BY invariant, created_at DESC, id DESC
+        `,
+        [invariants]
+    );
+
+    const latestSnapshots = new Map();
+    for (const snapshot of snapshots) {
+        if (!latestSnapshots.has(snapshot.invariant)) {
+            latestSnapshots.set(snapshot.invariant, parseArchivedData(snapshot.donnees));
+        }
+    }
+
+    return latestSnapshots;
 };
 
 async function getOrCreateGroup(connection, ligne) {
@@ -272,6 +354,80 @@ router.get('/', async (req, res) => {
     } catch (err) {
         console.error('[GET /biens]', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/biens/group/:groupe_id/tarif-difference?champ=surface_m2
+router.get('/group/:groupe_id/tarif-difference', async (req, res) => {
+    const groupeId = req.params.groupe_id;
+    const champ = req.query.champ;
+
+    if (!champ) {
+        return res.status(400).json({
+            error: 'Le parametre champ est requis.',
+            champsDisponibles: Object.keys(TARIFS_PAR_CHAMP),
+        });
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(TARIFS_PAR_CHAMP, champ)) {
+        return res.status(400).json({
+            error: `Champ non pris en charge pour la tarification: ${champ}`,
+            champsDisponibles: Object.keys(TARIFS_PAR_CHAMP),
+        });
+    }
+
+    try {
+        const [biens] = await pool.query(
+            'SELECT * FROM biens_fiscaux WHERE groupe_id = ? ORDER BY invariant',
+            [groupeId]
+        );
+
+        if (biens.length === 0) {
+            return res.status(404).json({ error: 'Groupe introuvable ou sans biens.' });
+        }
+
+        const invariants = biens.map((bien) => bien.invariant).filter(Boolean);
+        const snapshotsByInvariant = await getLatestSnapshotsForInvariants(invariants);
+
+        const differences = [];
+        let differenceTotaleTarif = 0;
+
+        for (const bien of biens) {
+            const oldData = snapshotsByInvariant.get(bien.invariant);
+            if (!oldData || !Object.prototype.hasOwnProperty.call(oldData, champ)) {
+                continue;
+            }
+
+            const ancienneValeur = normalizeComparableValue(champ, oldData[champ]);
+            const nouvelleValeur = normalizeComparableValue(champ, bien[champ]);
+
+            if (ancienneValeur === nouvelleValeur) {
+                continue;
+            }
+
+            const differenceTarif = computeTariffDifference(champ, ancienneValeur, nouvelleValeur);
+            differenceTotaleTarif += differenceTarif;
+
+            differences.push({
+                invariant: bien.invariant,
+                ancienne_valeur: ancienneValeur,
+                nouvelle_valeur: nouvelleValeur,
+                difference_tarif: Number(differenceTarif.toFixed(2)),
+            });
+        }
+
+        return res.status(200).json({
+            groupe_id: Number(groupeId),
+            champ,
+            tarif_unitaire: TARIFS_PAR_CHAMP[champ],
+            biens_analyses: biens.length,
+            biens_avec_difference: differences.length,
+            difference_totale_tarif: Number(differenceTotaleTarif.toFixed(2)),
+            differences,
+        });
+    } catch (err) {
+        console.error('[GET /biens/group/:groupe_id/tarif-difference]', err);
+        return res.status(500).json({ error: err.message });
     }
 });
 
