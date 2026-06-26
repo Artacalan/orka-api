@@ -440,6 +440,95 @@ Erreurs :
 
 - `500` en cas d'erreur de base.
 
+### GET /api/biens/group/:groupe_id/tarif-difference?champ=<nom_colonne>
+
+Calcule la difference de tarif pour tout un groupe sur une colonne donnee, en comparant la valeur courante (`biens_fiscaux`) et la derniere valeur archivee (`biens_fiscaux_old`) issue des operations `edit` ou `erp_update`.
+
+Payload attendu : aucun.
+
+Parametres :
+
+- `groupe_id` (path) : id du groupe a analyser.
+- `champ` (query) : nom de la colonne a comparer.
+
+Colonnes tarifables (`champ`) et tarif unitaire associe :
+
+```text
+rue: 4
+depcom: 7
+ville: 5
+nom_immeuble: 6
+nature_bien: 8
+ponderation_nature: 11
+etage: 9
+categorie: 12
+surface_m2: 15
+coef_entretien: 10
+coef_sit_particuliere: 13
+coef_sit_generale: 14
+ascenseur: 35
+eau_courante: 32
+raccordement_gaz: 29
+raccordement_elec: 31
+nb_baignoires: 17
+nb_douches: 16
+nb_bidets: 18
+nb_wc: 19
+nb_eviers: 20
+raccordement_egout: 33
+nb_pieces: 22
+nb_vide_ordures: 21
+valeur_calculee: 1
+```
+
+Traitement :
+
+1. Verifie que `champ` est fourni et supporte.
+2. Recupere tous les biens du `groupe_id`.
+3. Recupere la derniere archive par `invariant` dans `biens_fiscaux_old`.
+4. Compare `ancienne_valeur` et `nouvelle_valeur` pour le `champ` demande.
+5. Calcule `difference_tarif` par bien puis `difference_totale_tarif` pour le groupe.
+
+Exemple de requete :
+
+```text
+GET /api/biens/group/12/tarif-difference?champ=surface_m2
+```
+
+Reponse `200` :
+
+```json
+{
+  "groupe_id": 12,
+  "champ": "surface_m2",
+  "tarif_unitaire": 15,
+  "biens_analyses": 3,
+  "biens_avec_difference": 2,
+  "difference_totale_tarif": 75,
+  "differences": [
+    {
+      "invariant": "INV-001",
+      "ancienne_valeur": 40,
+      "nouvelle_valeur": 42,
+      "difference_tarif": 30
+    },
+    {
+      "invariant": "INV-002",
+      "ancienne_valeur": 50,
+      "nouvelle_valeur": 53,
+      "difference_tarif": 45
+    }
+  ]
+}
+```
+
+Erreurs :
+
+- `400` si `champ` est absent : retourne aussi `champsDisponibles`.
+- `400` si `champ` n'est pas supporte : retourne aussi `champsDisponibles`.
+- `404` si le groupe est introuvable ou sans biens.
+- `500` en cas d'erreur de base.
+
 ### GET /api/biens/:invariant
 
 Recupere un bien par son invariant.
