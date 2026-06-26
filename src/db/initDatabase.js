@@ -73,10 +73,28 @@ async function initDatabase() {
         );
     `;
 
+    const createOptimizeTableQuery = `
+        CREATE TABLE IF NOT EXISTS \`optimize\` (
+            id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            group_id    BIGINT UNSIGNED NOT NULL,
+            commentaire TEXT,
+            statut      VARCHAR(50)     NOT NULL DEFAULT 'en_cours',
+            fichiers    JSON            NULL,
+            created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_optimize_group_created (group_id, created_at),
+            CONSTRAINT fk_optimize_groupe
+                FOREIGN KEY (group_id) REFERENCES biens_groupes(id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        );
+    `;
+
     await pool.query(createGroupsTableQuery);
     await pool.query(createTableQuery);
     await pool.query(createHistoriqueTableQuery);
     await pool.query(createOldTableQuery);
+    await pool.query(createOptimizeTableQuery);
     await ensureCurrentOldTableSchema();
 
     const [columnRows] = await pool.query(

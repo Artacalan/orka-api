@@ -1,12 +1,12 @@
 /*
- * @file Gestion de l'upload d'un fichier .csv
+ * @file Gestion de l'upload de fichiers
  * */
 
 const multer = require('multer')
 
 const storage = multer.memoryStorage()
 
-const upload = multer({
+const csvUpload = multer({
   storage,
   fileFilter: (req, file, callback) => {
     if (file.mimetype !== "text/csv") {
@@ -19,4 +19,26 @@ const upload = multer({
   }
 })
 
-module.exports = upload
+const pdfUpload = multer({
+  storage,
+  fileFilter: (req, file, callback) => {
+    if (file.mimetype !== 'application/pdf') {
+      return callback(new Error("Le fichier n'est pas sur le bon format. Adaptez-le au format .pdf"))
+    }
+    callback(null, true)
+  },
+  limits: {
+    fileSize: 10 * 1024 * 1024
+  }
+})
+
+const anyFileUpload = multer({
+  storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024
+  }
+})
+
+module.exports = csvUpload
+module.exports.pdf = pdfUpload
+module.exports.anyFile = anyFileUpload
